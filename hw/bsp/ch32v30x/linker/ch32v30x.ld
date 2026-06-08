@@ -151,8 +151,21 @@ SECTIONS
 		PROVIDE( _ebss = .);
 	} >RAM AT>FLASH
 
-	PROVIDE( _end = _ebss);
-	PROVIDE( end = . );
+	/* Retained across NVIC_SystemReset (SRAM is not cleared by a soft reset, and
+	   this is placed after _ebss so the startup .bss-zero loop skips it). Used by
+	   the application to persist state across a reboot-driven mode switch. Heap
+	   (_end) starts after this so it is not clobbered. */
+	.noinit (NOLOAD) :
+	{
+		. = ALIGN(4);
+		PROVIDE( _snoinit = . );
+		*(.noinit*)
+		. = ALIGN(4);
+		PROVIDE( _enoinit = . );
+	} >RAM
+
+	PROVIDE( _end = _enoinit );
+	PROVIDE( end = _enoinit );
 
     .stack ORIGIN(RAM) + LENGTH(RAM) - __stack_size :
     {
@@ -164,4 +177,7 @@ SECTIONS
         __freertos_irq_stack_top = .;
     } >RAM
 
+	PROVIDE( _heap_end = ORIGIN(RAM) + LENGTH(RAM) - __stack_size );
+	PROVIDE( _susrstack = _heap_end );
+	PROVIDE( _eusrstack = ORIGIN(RAM) + LENGTH(RAM) );
 }
