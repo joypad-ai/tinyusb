@@ -54,3 +54,8 @@ Release
 BrowseInfo
 .cmake_build
 README_processed.rst
+
+# WCH vendor MCU SDKs fetched on demand by tools/get_deps.py (and joypad-os's
+# make init-wch) into the path hw/bsp/ch32*/family.mk hardcodes as SDK_DIR.
+# Not source — a downloaded build dependency — so keep it out of git status.
+hw/mcu/wch/
