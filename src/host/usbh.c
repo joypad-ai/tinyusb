@@ -1386,12 +1386,22 @@ static void process_removed_device(uint8_t rhport, uint8_t hub_addr, uint8_t hub
 // NOTE: due to the shared control buffer, we must complete enumerating
 // one device before enumerating another one.
 //--------------------------------------------------------------------+
+// Recovery time after SET_ADDRESS before the device answers at its new address.
+// USB 2.0 §9.2.6.3 minimum is 2 ms (the upstream default kept here). App builds
+// may override via tusb_config.h: the RP2040 PIO-USB software host needs more for
+// some slow full-speed devices, which otherwise time out the following
+// device-descriptor read. Overriding does not change behavior for anyone who
+// leaves it undefined.
+#ifndef CFG_TUH_ENUM_SET_ADDRESS_RECOVERY_MS
+#define CFG_TUH_ENUM_SET_ADDRESS_RECOVERY_MS 2
+#endif
+
 enum {                               // USB 2.0 specs 7.1.7 for timing
   ENUM_DEBOUNCING_DELAY_MS = 150,    // T(ATTDB)  minimum 100 ms for stable connection
   ENUM_RESET_ROOT_DELAY_MS = 50,     // T(DRSTr)  minimum 50 ms for reset from root port
   ENUM_RESET_HUB_DELAY_MS = 20,      // T(DRST)   10-20 ms for hub reset
   ENUM_RESET_RECOVERY_DELAY_MS = 10, // T(RSTRCY) minimum 10 ms for reset recovery
-  ENUM_SET_ADDRESS_RECOVERY_DELAY_MS = 2, // USB 2.0 Spec 9.2.6.3 min is 2 ms
+  ENUM_SET_ADDRESS_RECOVERY_DELAY_MS = CFG_TUH_ENUM_SET_ADDRESS_RECOVERY_MS,
 };
 
 enum {
@@ -1641,8 +1651,25 @@ static void process_enumeration(tuh_xfer_t* xfer) {
       dev->bNumConfigurations = desc_device->bNumConfigurations;
 
       tuh_enum_descriptor_device_cb(daddr, desc_device); // callback
+
+#if defined(CFG_TUH_ENUM_SKIP_STRINGS) && CFG_TUH_ENUM_SKIP_STRINGS
+      // Opt-in (tusb_config.h): skip string-descriptor fetching during
+      // enumeration. Strings (langid, manufacturer, product, serial) are purely
+      // informational, but the enum state machine chains them ahead of the
+      // configuration read and a failed string control-IN aborts the whole
+      // enumeration. Some devices (e.g. the Intel Wireless Series 8086:C013
+      // receiver on the RP2040 PIO-USB software host) reliably fail these string
+      // reads, which would otherwise drop the device before any interface driver
+      // is bound. Nothing functional depends on enum-time strings; an app that
+      // needs them can fetch lazily via tuh_descriptor_get_string(). Jump
+      // straight to the 9-byte configuration descriptor.
+      TU_LOG_USBH("Get Configuration[0] Descriptor (9 bytes)\r\n");
+      TU_ASSERT(tuh_descriptor_get_configuration(daddr, 0, _usbh_epbuf.ctrl, 9,
+                                                 process_enumeration, ENUM_GET_FULL_CONFIG_DESC),);
+#else
       tuh_descriptor_get_string_langid(daddr, _usbh_epbuf.ctrl, 2,
                                        process_enumeration, ENUM_GET_STRING_LANGUAGE_ID);
+#endif
       break;
     }
 
